@@ -1,5 +1,7 @@
 ﻿using Open.Nat;
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 
 namespace PortOpener
@@ -8,26 +10,57 @@ namespace PortOpener
     {
         static void Main(string[] args)
         {
-            OpenPort(args.Length > 0 ? Convert.ToInt32(args[0]) : 25565);
+            Dictionary<int, string> portsToOpen = new Dictionary<int, string>();
+
+            var argv = string.Join(" ", args);
+            var portsParameter = argv.ParseArgs("ports");
+
+            if (!string.IsNullOrEmpty(portsParameter))
+            {
+                var ports = portsParameter.Split(",").Select(x => int.Parse(x)).ToArray();
+                var types = new string[ports.Length];
+
+                var typesParameter = argv.ParseArgs("types");
+                if (!string.IsNullOrEmpty(typesParameter))
+                {
+                    types = typesParameter.Split(",");
+                }
+                else ports.Each((port, index) => types[index] = "tcp");
+
+                ports.Each((port, index) => portsToOpen[port] = types[index]);
+            }
+            else
+            {
+                portsParameter = argv.ParseArgs("port");
+                var port = int.Parse(portsParameter);
+                var type = argv.ParseArgs("type");
+                type = string.IsNullOrEmpty(type) ? "tcp" : type;
+
+                portsToOpen[port] = type;
+            }
+
+            OpenPorts(portsToOpen);
             Console.ReadLine();
         }
 
-        static async void OpenPort(int port)
+        static async void OpenPorts(Dictionary<int, string> ports)
         {
-            Console.WriteLine($"Trying to open port {port} using UPnP...");
+            var portsString = string.Empty;
+            ports.ToList().ForEach(x => portsString += $"{{{x.Key},{x.Value}}}, ");
+            Console.WriteLine($"Trying to open: {portsString} using UPnP...");
             try
             {
                 NatDiscoverer discoverer = new NatDiscoverer();
                 CancellationTokenSource cts = new CancellationTokenSource(2500);
                 NatDevice device = await discoverer.DiscoverDeviceAsync(PortMapper.Upnp, cts);
 
-                await device.CreatePortMapAsync(new Mapping(Protocol.Tcp, port, port, ""));
+                ports.ToList().ForEach(async x => await device.CreatePortMapAsync(new Mapping(x.Value == "tcp" ? Protocol.Tcp : Protocol.Udp, x.Key, x.Key, "")));
 
-                Console.WriteLine($"Port {port} is open!");
+                Console.WriteLine($"Ports are open!");
             }
             catch (Exception e)
             {
-                Console.WriteLine($"Can't open port {port} using UPnP!");
+                Console.WriteLine($"Can't open ports using UPnP!");
                 Console.WriteLine($"Reason: {e.Message}");
             }
         }
